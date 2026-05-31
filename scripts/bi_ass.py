@@ -12,7 +12,7 @@
 
 用法:
   bi_ass.py --cues cues_bi.json --out bi.ass --style box \
-     --zh-size 54 --en-size 38 --res 1920x1080 [--box-alpha 40] [--margin-h 80] [--margin-v 60]
+     --zh-size 54 --en-size 38 --res 1920x1080 [--box-alpha 160] [--margin-h 80] [--margin-v 60]
 
 注意：长句要先用 split_long_cues.py 拆成「每条≤1 行中文」，否则中文会折行、字幕一坨。
 """
@@ -43,8 +43,8 @@ def main():
                     help="box=白字+半透明黑底框(默认) | outline=白字+黑描边")
     ap.add_argument("--outline", type=int, default=3,
                     help="描边宽度(outline) / 底框内边距(box)")
-    ap.add_argument("--box-alpha", default="40",
-                    help="底框透明度 hex：00=全不透明 .. FF=全透明（box 样式；数值越小越深）")
+    ap.add_argument("--box-alpha", type=int, default=160,
+                    help="底框透明度 0~255: 0=全透明(无底色) .. 255=全不透明(纯黑); 默认160")
     ap.add_argument("--bold", type=int, default=0)
     args = ap.parse_args()
 
@@ -54,7 +54,9 @@ def main():
     if args.style == "box":
         # BorderStyle=3 不透明框；把 Outline 与 Back 两个颜色都设成同一半透明黑，
         # 这样无论 libass 用哪个颜色画框，底框都是统一的半透明黑。
-        box = f"&H{args.box_alpha}000000"
+        # ASS alpha: 00=不透明, FF=全透明; 用户传入的 box-alpha: 0=全透明, 255=不透明
+        alpha_hex = f"{255 - args.box_alpha:02X}"
+        box = f"&H{alpha_hex}000000"
         borderstyle, outcol, backcol, outline, shadow = 3, box, box, args.outline, 0
     else:
         borderstyle, outcol, backcol, outline, shadow = 1, "&H00000000", "&H00000000", args.outline, 0
