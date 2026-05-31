@@ -1,3 +1,24 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+# 每个视频的工作目录（中间产物、成片）
+work/
+
+# 工作文件：音轨、字幕中间产物、抽帧样片、成片
+*.wav
+*.srt
+cues_*.json
+build_bi.py
+*.ass
+sample*.png
+# 视频软链接 & 成片
+*.mp4
+!scripts/
+
+# 下载辅助脚本
+download_model.py
+~/
+
+# Claude Code 工作目录
+.claude/

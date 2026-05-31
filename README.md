@@ -31,6 +31,7 @@ curl -L --fail -o ~/.cache/whisper.cpp/ggml-large-v3-turbo.bin \
 |---|---|
 | `scripts/srt_to_cues.py` | whisper 输出的 SRT → 统一 `cues.json`，可同时应用纠错表并写出纠错后 SRT |
 | `scripts/cues_to_srt.py` | `cues.json` → SRT |
+| `scripts/build_bi_cues.py` | **双语构建**：`cues_en.json` + `bi_config.json` → `cues_bi.json`；所有视频复用，逐视频只写配置 |
 | `scripts/srt_to_ass.py` | `cues.json` → ASS（**单语**：字号 / 字体 / 黑底白字或描边 / 分辨率，字号=真实像素） |
 | `scripts/bi_ass.py` | 双语 `cues_bi.json` → ASS（**中外双语**：中文在上较大、原文在下较小；box 半透明底框或描边） |
 | `scripts/split_long_cues.py` | 双语长句拆短，保证每条中文 ≤1 行（按标点断句、时间按比例切分） |
@@ -38,7 +39,15 @@ curl -L --fail -o ~/.cache/whisper.cpp/ggml-large-v3-turbo.bin \
 
 ## 快速用法
 
+所有中间文件统一放在 `work/<视频名>/` 下，保持项目根目录干净：
+
 ```bash
+# 0. 创建工作目录
+WORK=work/voice
+mkdir -p "$WORK"
+ln -sf "$(pwd)/../<视频绝对路径>" "$WORK/video.mp4"
+cd "$WORK"
+
 # 1. 抽 16k 单声道音轨
 ffmpeg -y -i video.mp4 -ar 16000 -ac 1 -c:a pcm_s16le audio16k.wav
 
@@ -47,11 +56,11 @@ whisper-cli -m ~/.cache/whisper.cpp/ggml-large-v3-turbo.bin \
   -f audio16k.wav -l zh -osrt -of video_whisper -t 8
 
 # 3. 纠错（通读 video_whisper.srt，写 corrections.txt：错词=>对词）→ cues.json + 纠错后 SRT
-python3 scripts/srt_to_cues.py --srt video_whisper.srt --cues cues.json \
+python3 ../scripts/srt_to_cues.py --srt video_whisper.srt --cues cues.json \
   --corrections-file corrections.txt --out-srt video_final.srt
 
 # 4. cues.json → ASS（样式可调）
-python3 scripts/srt_to_ass.py --cues cues.json --out video.ass \
+python3 ../scripts/srt_to_ass.py --cues cues.json --out video.ass \
   --fontsize 48 --style box --font "Hiragino Sans GB" --res 1920x1080
 
 # 5. 烧录硬字幕
@@ -69,12 +78,12 @@ ffmpeg -y -i video.mp4 -vf "ass=video.ass" \
 
 ```bash
 # 先拆长句：保证每条中文在该字号/分辨率下 ≤1 行（参数须与 bi_ass.py 一致）
-python3 scripts/split_long_cues.py --in cues_bi.json --out cues_bi_split.json \
+python3 ../scripts/split_long_cues.py --in cues_bi.json --out cues_bi_split.json \
   --zh-size 120 --res 2560x1440 --margin-h 40
 
 # 生成双语 ASS（中文在上大、英文在下小；box 半透明底框）
-python3 scripts/bi_ass.py --cues cues_bi_split.json --out bi.ass \
-  --style box --zh-size 120 --en-size 50 --res 2560x1440 --box-alpha 40 --margin-h 40
+python3 ../scripts/bi_ass.py --cues cues_bi_split.json --out bi.ass \
+  --style box --zh-size 120 --en-size 50 --res 2560x1440 --box-alpha 160 --margin-h 40
 
 # 烧录同上（-vf "ass=bi.ass"）。抽帧确认须用 -copyts 且 -ss 放 -i 前：
 ffmpeg -loglevel error -copyts -ss 60 -i video.mp4 -vf "ass=bi.ass" -frames:v 1 -y sample.png

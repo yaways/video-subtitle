@@ -26,11 +26,20 @@ description: 给任意视频加字幕的全流程——用 whisper.cpp 本地识
 
 ## 步骤
 
-### 0. 探测视频
+### 0. 创建工作目录 & 探测视频
+每个视频的所有中间产物和成片统一放在 `work/<视频名>/` 子目录，保持项目根目录干净。
 ```
-ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height -of default=noprint_wrappers=1 <video>
+WORK=work/<视频名>           # 如 work/voice（取视频文件名去掉扩展名）
+mkdir -p "$WORK"
+ln -sf "$(pwd)/../<视频绝对路径>" "$WORK/video.mp4"
 ```
-记下**时长(秒)**和**分辨率**。文件名有空格/特殊字符时先建干净软链接：`ln -sf './原名' ./video.mp4`。
+之后**所有命令都在 `cd "$WORK"` 下执行**（脚本路径用 `../scripts/xxx.py`）。
+
+探测视频：
+```
+ffprobe -v error -show_entries format=duration:stream=codec_type,codec_name,width,height -of default=noprint_wrappers=1 video.mp4
+```
+记下**时长(秒)**和**分辨率**。
 
 ### 1. 抽 16k 单声道音轨
 whisper.cpp 只吃 wav/mp3/flac/ogg（**不吃 mp4**），先抽音轨：
@@ -53,7 +62,7 @@ whisper-cli -m "$M" -f audio16k.wav -l zh -osrt -of video_whisper -t 8
 ### 3. Claude 纠错（关键，全自动，由你做）
 whisper 会有同音/近音错（如「程序员」听成「程序儿」、「会议纪要」听成「会计记药」、「空白页」听成「空白脸」、专有名词听错）。**这步完全由你自动完成，不依赖任何用户输入**：通读 `video_whisper.srt`，结合视频主题用语言理解找出明显错误，**自己生成**修正表 `corrections.txt`（每行 `错词=>对词`，`#` 注释），然后应用：
 ```
-python3 scripts/srt_to_cues.py --srt video_whisper.srt --cues cues.json \
+python3 ../scripts/srt_to_cues.py --srt video_whisper.srt --cues cues.json \
    --corrections-file corrections.txt --out-srt video_final.srt
 ```
 - 输出纠错后的 `cues.json`（统一格式）和 `video_final.srt`。
@@ -62,13 +71,13 @@ python3 scripts/srt_to_cues.py --srt video_whisper.srt --cues cues.json \
 
 ### 4.（可选）人工核对 / 微调时间
 ```
-python3 scripts/make_review_html.py --cues cues.json --video video.mp4 --out review.html --duration <秒>
+python3 ../scripts/make_review_html.py --cues cues.json --video video.mp4 --out review.html --duration <秒>
 ```
-`open review.html`：左播视频、右逐条字幕，**文字可改、时间轴可改**（⤓设为当前播放位置 / ±0.1s 微调 / ↑↓方向键 / 直接输入 / 起终点联动）。改完点「导出 SRT」得 `subtitle_corrected.srt`，再 `python3 scripts/cues_to_srt.py` 或直接用导出的 SRT 进烧录。
+`open review.html`：左播视频、右逐条字幕，**文字可改、时间轴可改**（⤓设为当前播放位置 / ±0.1s 微调 / ↑↓方向键 / 直接输入 / 起终点联动）。改完点「导出 SRT」得 `subtitle_corrected.srt`，再 `python3 ../scripts/cues_to_srt.py` 或直接用导出的 SRT 进烧录。
 
 ### 5. 烧录硬字幕
 ```
-python3 scripts/srt_to_ass.py --cues cues.json --out video.ass \
+python3 ../scripts/srt_to_ass.py --cues cues.json --out video.ass \
    --fontsize 48 --style box --font "Hiragino Sans GB" --res <宽x高>
 #   --style box=黑底白字(默认) | outline=白字黑描边；--fontsize 为真实像素
 
@@ -91,7 +100,7 @@ FF=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 2. **Claude 同时纠错 + 翻译**（核心，全自动，由你做）：通读英文转写，
    - 纠正识别错误（专有名词、同音词；whisper 还常见**重复幻觉**——同一句连写多遍，可把那一小段音频单独 `-ss/-to` 切出来重识别还原）；
    - **逐句译成自然中文**、术语统一；产出双语 `cues_bi.json`，每条含 `zh` / `en` / `start` / `end`（外文照抄纠错后的原文，中文是你的翻译）。
-   - **别手写 `cues_bi.json`**：条数多、易错、改一条还要对齐时间。用「构建脚本」按 `idx` 从 `cues_en.json` 合并——`CORR`(英文纠错) + `ZH`(逐条译文) + `TIME_OVERRIDE`(改个别条时间) + `DROP`(删幻觉条)。可复现、改时间/删条不必重译。模板见 [`references/bilingual-build-workflow.md`](references/bilingual-build-workflow.md)。
+   - **别手写 `cues_bi.json`**：条数多、易错、改一条还要对齐时间。用可复用脚本 `../scripts/build_bi_cues.py` + 配置文件 `bi_config.json` 按 `idx` 从 `cues_en.json` 合并——`corr`(英文纠错) + `zh`(逐条译文) + `time_override`(改个别条时间) + `drop`(删幻觉条)。可复现、改时间/删条不必重译。模板见 [`references/bilingual-build-workflow.md`](references/bilingual-build-workflow.md)。
    - 翻译同 `corrections` 一样是你的「逐视频工件」，**不需要用户提供**；把关键纠错/专名列给用户看（可否决）。
 
 ### 双语字幕样式偏好（已固化为默认）
@@ -103,7 +112,7 @@ FF=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 ### 先拆长句，再渲染、烧录（重要）
 字号一大，一行放不下就会折行、字幕糊成一坨。**中文和外文都要约束**——只看中文的旧 `split_long_cues.py` 会让外文行在大字号下偷偷折成两行。用 `split_bi_cues.py`（中英都顾）：
 ```
-python3 scripts/split_bi_cues.py --in cues_bi.json --out cues_bi_split.json \
+python3 ../scripts/split_bi_cues.py --in cues_bi.json --out cues_bi_split.json \
    --zh-size 120 --en-size 50 --res 2560x1440 --margin-h 40
 #  必须用与下面 bi_ass.py 相同的 --zh-size/--en-size/--res/--margin-h，阈值才和真实换行一致
 #  中文 OR 外文任一行超宽就继续拆；保护 token 不被从中间断开(CLAUDE.md、HTTP/3、4.7 等)；超宽必拆到底
@@ -111,9 +120,9 @@ python3 scripts/split_bi_cues.py --in cues_bi.json --out cues_bi_split.json \
 ```
 再生成双语 ASS 并烧录（烧录命令同单语流程，`-vf "ass=bi.ass"`）：
 ```
-python3 scripts/bi_ass.py --cues cues_bi_split.json --out bi.ass \
-   --style box --zh-size 120 --en-size 50 --res 2560x1440 --box-alpha 40 --margin-h 40
-#  box-alpha 数值越小底框越深(40≈75%不透明)；outline 样式改用 --outline 调描边宽度
+python3 ../scripts/bi_ass.py --cues cues_bi_split.json --out bi.ass \
+   --style box --zh-size 120 --en-size 50 --res 2560x1440 --box-alpha 160 --margin-h 40
+#  box-alpha 0~255: 0=全透明(无底色) .. 255=全不透明(纯黑); 默认160≈63%透明
 ```
 **烧整段前必抽帧确认**（短句、长句各抽一帧）。注意：抽帧（及任何按时间点取画面）要用 **`-copyts` 且 `-ss` 放 `-i` 之前**，否则字幕 filter 把帧当 t=0、永远只渲染第一条：
 ```
@@ -127,6 +136,7 @@ FF=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 |---|---|
 | `scripts/srt_to_cues.py` | SRT（whisper 输出）→ 统一 cues.json，**可同时应用纠错表/纠错项**，并写出纠错后 SRT |
 | `scripts/cues_to_srt.py` | cues.json → SRT（核对页改完后导出成片用 SRT） |
+| `scripts/build_bi_cues.py` | **双语构建**：从 `cues_en.json` + `bi_config.json`（纠错/翻译/时间覆写/删条）合并出 `cues_bi.json`；所有视频复用同一脚本，逐视频只写配置 |
 | `scripts/make_review_html.py` | 交互式核对页（文字+时间轴可改、播放跟随、导出 SRT） |
 | `scripts/srt_to_ass.py` | cues.json → ASS（**单语**：字号/字体/黑底白字 or 描边/分辨率，字号=真实像素） |
 | `scripts/bi_ass.py` | 双语 cues → ASS（**中外双语**：中文在上较大、外文在下较小；box 半透明底框 or 描边；字号=真实像素） |
@@ -140,7 +150,7 @@ FF=/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg
 - 语言非中文时改 `whisper-cli -l <code>`，字体换对应语言的系统字。
 
 ## 注意
-- 原始视频不要动，用软链接 `video.mp4` 引用。
+- 原始视频不要动，在工作目录中用软链接 `video.mp4` 引用。
 - 识别/烧录较耗时，适合后台跑，完成再汇报。
 - 下载模型属外联操作，先征得用户同意。
 - **开场/结尾有音乐·掌声**：whisper 易幻觉出字幕、并把人声计时往前压（字幕偏早）→ 用 VAD 重识别，并把幻觉条 `DROP`、偏差条填 `TIME_OVERRIDE`（见 [`references/transcribe-whisper.md`](references/transcribe-whisper.md) / [`references/bilingual-build-workflow.md`](references/bilingual-build-workflow.md)）。
